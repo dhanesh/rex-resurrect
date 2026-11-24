@@ -1,0 +1,4 @@
+.t/
+# local tool data, not part of the project
+.remember/
+.world-model/
