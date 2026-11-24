@@ -56,7 +56,7 @@ case ${1:-help} in
     cat "$SRC/VERSION" 2>/dev/null || echo dev
     ;;
   help|-h|--help)
-    sed -n '2,9p' "$0"
+    sed -n '2,6p' "$0"
     ;;
   *)
     say "unknown command: $1 (try: rex-resurrect help)" >&2
