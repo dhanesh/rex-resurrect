@@ -270,6 +270,50 @@ test("scrollback: replay banners are dropped, the replayed output kept", functio
   eq(scrollback.clean(raw, 10, true), "old\nnew")
 end)
 
+-- A fake server for the tracker: sessions appear without any event, as when
+-- one is created while the saver is still starting.
+local function fake_server()
+  local srv = { sessions = {} }
+  local view = { session_id = "s1", label = "work", windows = { {
+    window_id = "w1",
+    layers = { { kind = "tiled", layout = { block_id = "b1" },
+                 blocks = { { block_id = "b1", creator_name = "com.superlogical.terminal" } } } },
+  } } }
+  srv.call = function(method, params)
+    if method == "session.list" then
+      local out = {}
+      for _, sid in ipairs(srv.sessions) do out[#out + 1] = { session_id = sid } end
+      return { sessions = out }
+    elseif method == "session.view" and params.session_id == "s1" and #srv.sessions > 0 then
+      return view
+    end
+    return nil, "not found"
+  end
+  return srv
+end
+local function with_fake(srv, fn)
+  local real_call, real_probe = util.call, snapshot.probe_process
+  util.call = srv.call
+  snapshot.probe_process = function() return { ancestors = { { name = "zsh", cwd = "/tmp" } } } end
+  local ok, err = pcall(fn)
+  util.call, snapshot.probe_process = real_call, real_probe
+  if not ok then error(err, 0) end
+end
+for _, case in ipairs({ { "session", "s1" }, { "block", "b1" } }) do
+  test("a session missed at startup is saved on its next " .. case[1] .. " event", function()
+    local srv = fake_server()
+    with_fake(srv, function()
+      local t = snapshot.tracker(cfg)
+      t:mark_all(); assert(t:refresh())
+      eq(#t:snapshot().sessions, 0, "before:")
+      srv.sessions = { "s1" }  -- created before the saver listened: no session_created
+      if case[1] == "session" then t:mark_session(case[2]) else t:mark_block(case[2]) end
+      assert(t:refresh())
+      eq(#t:snapshot().sessions, 1, "after:")
+    end)
+  end)
+end
+
 test("regression: runtime keeps table state across caught errors", function()
   local st = { n = 0 }
   local function inc() st.n = st.n + 1 end

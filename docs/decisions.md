@@ -11,3 +11,4 @@ Decisions made by the project owner, newest last.
 | 2026-11-24 | Fix the misleading snapshot age now | The prompt says when an unchanged snapshot was last confirmed current, not just when it last changed. |
 | 2026-11-24 | Publish: public repo `dhanesh/rex-resurrect`, MIT license, first release `v0.1.1` | v0.1.0 stays an unreleased tag (its tree has no `get.sh`). Commits use the GitHub no-reply address. |
 | 2026-11-24 | Make the documentation complete for anyone to install and use | README covers requirements, each install method, checking it works, updating, removing, files, and troubleshooting. |
+| 2026-11-24 | Verify what v0.1.1 left unverified (own zsh config, Homebrew on macOS and Linux, `brew audit`), fix what that finds, and send the fixes as a pull request | Fixes go to v0.1.2, released after the PR is merged. |

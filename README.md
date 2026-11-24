@@ -70,7 +70,7 @@ This downloads the latest release, checks it against the release's
 | `--no-service`     | don't install the background saver (run it yourself)         |
 | `--uninstall`      | remove rex-resurrect; add `--purge` to delete saved snapshots |
 
-### Homebrew (macOS)
+### Homebrew (macOS, Linux)
 
 ```sh
 brew install dhanesh/tap/rex-resurrect
@@ -79,8 +79,9 @@ brew services start rex-resurrect      # run the saver now and at login
 ```
 
 `rex-resurrect setup` also stops a saver left by an earlier one-line or
-checkout install, so only one ever runs. Homebrew on Linux isn't tested; use
-the one-line install there.
+checkout install on macOS, so only one ever runs. On Linux, `brew services`
+runs the saver as a systemd user service; don't also install it with the
+one-line install.
 
 ### From a checkout
 
@@ -96,8 +97,8 @@ cd rex-resurrect
 
 | Platform | Saver runs as                                              | Tested on |
 |----------|------------------------------------------------------------|-----------|
-| macOS    | launchd agent `dev.rex-resurrect` (or `brew services`)      | macOS (arm64) |
-| Linux    | systemd user service `rex-resurrect`                        | Ubuntu 24.04 VM (systemd); Ubuntu 24.04 and Alpine 3.22 (musl) containers |
+| macOS    | launchd agent `dev.rex-resurrect` (or `brew services`)      | macOS (arm64), including Homebrew |
+| Linux    | systemd user service `rex-resurrect` (or `brew services`)   | Ubuntu 24.04 VM (systemd), including Homebrew; Ubuntu 24.04 and Alpine 3.22 (musl) containers |
 | FreeBSD  | `daemon(8)`, which restarts it, started at boot by cron `@reboot` | FreeBSD 15.1 (arm64) VM, including a reboot |
 
 The installer checks `init.lua` with `rex config check` before and after
@@ -283,7 +284,7 @@ remove it from your startup file.
 | Platform        | Check | Restart |
 |-----------------|-------|---------|
 | macOS           | `launchctl print gui/$(id -u)/dev.rex-resurrect \| grep state` | `launchctl kickstart -k gui/$(id -u)/dev.rex-resurrect` |
-| macOS, Homebrew | `brew services info rex-resurrect` | `brew services restart rex-resurrect` |
+| Homebrew        | `brew services info rex-resurrect` | `brew services restart rex-resurrect` |
 | Linux           | `systemctl --user status rex-resurrect` | `systemctl --user restart rex-resurrect` |
 | FreeBSD         | `pgrep -f resurrectd.sh` | run the installer again |
 
@@ -372,6 +373,7 @@ rex do tests/unit.lua   # unit tests, in Rex's own Lua 5.1 runtime
 tests/e2e.sh            # full lifecycle against a throwaway server (never yours)
 tests/get-test.sh       # get.sh against a local release copy, sandboxed, no service
 tests/shell-e2e.sh      # the zsh hook through two restarts, on a throwaway server and zsh
+RR_TEST_RC=~/.zshrc tests/shell-e2e.sh   # the same, after your own zsh config (read only)
 tests/linux.sh          # all of the above in Ubuntu and Alpine containers, plus the bash hook
 ```
 

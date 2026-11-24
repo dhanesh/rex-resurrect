@@ -4,7 +4,10 @@
 # restart, re-attach and uninstall. Expects the repo in ~/rr. Never run it on
 # a machine you use: it stops and starts that machine's Rex server.
 set -u
-cd ~/rr || exit 1
+# The checkout this script is in; piped in over stdin (bash -s), the copy at ~/rr.
+ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+[ -f "$ROOT/install.sh" ] || ROOT=~/rr
+cd "$ROOT" || exit 1
 PASS=0 FAIL=0
 check() { local d=$1; shift; if "$@" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ✓ $d"; else FAIL=$((FAIL+1)); echo "  ✗ $d"; fi; }
 wait_for() { local n=$(( $1 * 2 )); shift; for ((i=0;i<n;i++)); do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1; }

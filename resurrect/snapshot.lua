@@ -33,14 +33,26 @@ function Tracker:mark_all()
 end
 
 function Tracker:mark_list() self.need_list = true end
-function Tracker:mark_session(sid) if sid then self.dirty_sessions[sid] = true end end
-function Tracker:mark_block(bid) if bid then self.dirty_blocks[bid] = true end end
+-- An event about a session or block the tracker hasn't seen also re-reads the
+-- session list: the session may have been created while the saver was
+-- starting, before it listened for session_created.
+function Tracker:mark_session(sid)
+  if not sid then return end
+  self.dirty_sessions[sid] = true
+  if not self.views[sid] then self.need_list = true end
+end
+function Tracker:mark_block(bid)
+  if not bid then return end
+  self.dirty_blocks[bid] = true
+  if not self.blocks[bid] then self.need_list = true end
+end
 
 function Tracker:is_dirty()
   return self.need_list or next(self.dirty_sessions) ~= nil or next(self.dirty_blocks) ~= nil
 end
 
-local call = util.call
+-- Looked up on each call, so tests can stand in for the Rex API.
+local function call(method, params) return util.call(method, params) end
 
 local function is_gone(err)
   return err and (err:find("not_found") or err:find("not found")) ~= nil
