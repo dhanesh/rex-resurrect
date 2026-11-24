@@ -12,6 +12,8 @@
 * `rex-resurrect help` lists only the commands.
 * Homebrew on Linux is tested (install, `brew test`, `setup`,
   `brew services`, removal), and `brew audit --strict --online` passes.
+  Upgrading from v0.1.1 (`brew upgrade` then `brew services restart`) and
+  the saver starting at login are tested on macOS and Linux.
 * Tests: `tests/shell-e2e.sh` can run after your own zsh config
   (`RR_TEST_RC=~/.zshrc`, read only), and no longer depends on timing in two
   places. `tests/systemd.sh` checks for a clean stop. The VM tests run from
