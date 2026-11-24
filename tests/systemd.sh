@@ -4,7 +4,10 @@
 # Installs Rex's own user service, then ./install.sh, restarts Rex, checks the
 # saver re-attaches, then ./uninstall.sh. Run it only on a throwaway machine.
 set -u
-cd ~/rr || exit 1
+# The checkout this script is in; piped in over stdin (bash -s), the copy at ~/rr.
+ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)
+[ -f "$ROOT/install.sh" ] || ROOT=~/rr
+cd "$ROOT" || exit 1
 PASS=0 FAIL=0
 check() { local d=$1; shift; if "$@" >/dev/null 2>&1; then PASS=$((PASS+1)); echo "  ✓ $d"; else FAIL=$((FAIL+1)); echo "  ✗ $d"; fi; }
 wait_for() { local n=$(( $1 * 2 )); shift; for ((i=0;i<n;i++)); do "$@" >/dev/null 2>&1 && return 0; sleep 0.5; done; return 1; }
@@ -47,7 +50,13 @@ echo "4. Re-install is idempotent"
 ./install.sh >/dev/null 2>&1
 check "hook present exactly once" test "$(grep -cF -- '-- >>> rex-resurrect >>>' ~/.config/rex/init.lua)" = 1
 
-echo "5. ./uninstall.sh"
+echo "5. Stopping the saver is a clean stop, not a failure"
+systemctl --user stop rex-resurrect.service
+check "unit inactive, not failed" bash -c "[ \"\$(systemctl --user is-active rex-resurrect.service)\" = inactive ]"
+systemctl --user start rex-resurrect.service
+check "starts again" wait_for 15 systemctl --user is-active rex-resurrect.service
+
+echo "6. ./uninstall.sh"
 ./uninstall.sh >/dev/null 2>&1
 check "unit gone" bash -c "! systemctl --user cat rex-resurrect.service"
 check "hook removed" bash -c "! grep -qF rex-resurrect ~/.config/rex/init.lua"

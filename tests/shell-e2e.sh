@@ -60,7 +60,13 @@ cat >"$XDG_CONFIG_HOME/rex/resurrect-config.lua" <<'EOF'
 return { min_save_interval = 1, save_debounce = 0.5, settle_delay = 1, confirm_interval = 1, scrollback_poll = 1 }
 EOF
 if [ "$SH" = zsh ]; then
-  cat >"$ZDOTDIR/.zshrc" <<EOF
+  # RR_TEST_RC=~/.zshrc tests the hook after your own zsh config (read
+  # only). The history file, prompt and hook are set after it, so typed test
+  # commands still go to a throwaway history file, never yours.
+  if [ -n "${RR_TEST_RC:-}" ]; then
+    printf 'DISABLE_AUTO_UPDATE=true\nsource %q\n' "$RR_TEST_RC" >"$ZDOTDIR/.zshrc"
+  fi
+  cat >>"$ZDOTDIR/.zshrc" <<EOF
 HISTFILE=$T/zhist SAVEHIST=1000 HISTSIZE=1000
 setopt sharehistory histignorespace
 PS1='P%# '
@@ -102,6 +108,12 @@ check "second block starts" wait_for 10 shows "$SID" "$B2" 'P%'
 run "$SID" "$B2" 'echo other-block-cmd'
 check "  its command is recorded in its own file" wait_for 5 grep -qx 'echo other-block-cmd' "$(bdir "$B2")/history"
 
+# The split above saved a new snapshot; let the saver confirm that one as
+# still current (a command at least a second later) before the power cut.
+confirmed() { python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1])); l=json.load(open(sys.argv[2])); sys.exit(c["saved_at"] != l["saved_at"] or c["at"] <= l["saved_at"])' "$STATE/checked.json" "$STATE/last.json"; }
+sleep 1.5; run "$SID" "$B2" 'echo confirm-current'
+check "newest snapshot confirmed current before the power cut" wait_for 10 confirmed
+
 echo "2. Power-cut restart; Rex restores the blocks itself"
 crash
 check "block keeps its id" wait_for 10 shows "$SID" "$B" 'P%'
@@ -121,8 +133,15 @@ echo "3. The plugin rebuilds the block (Rex skipped it)"
 run "$SID" "$B" 'echo rebuilt-marker'
 check "new output saved" wait_for 10 grep -q 'rebuilt-marker' "$(bdir "$B")/scrollback"
 restart --restore=false
-PSID=$(X session ls --json | jq_ '[s["session_id"] for s in d["sessions"]][0]')
-PB=$(X block ls -s "$PSID" --json | jq_ '([b["block_id"] for b in d["blocks"] if b.get("label")=="rex-resurrect"] or [""])[0]')
+# The prompt's session and pane appear a moment after the server starts.
+prompt_ids() {
+  PSID=$(X session ls --json 2>/dev/null | jq_ '([s["session_id"] for s in d["sessions"]] or [""])[0]' 2>/dev/null) || return 1
+  [ -n "$PSID" ] || return 1
+  PB=$(X block ls -s "$PSID" --json 2>/dev/null | jq_ '([b["block_id"] for b in d["blocks"] if b.get("label")=="rex-resurrect"] or [""])[0]' 2>/dev/null)
+  [ -n "$PB" ]
+}
+PSID="" PB=""
+for ((i = 0; i < 60; i++)); do prompt_ids && break; sleep 0.25; done
 check "prompt offered" wait_for 10 shows "$PSID" "$PB" 'Restore now'
 X send -s "$PSID" -b "$PB" 'y' && X send-key -s "$PSID" -b "$PB" enter
 check "session rebuilt" wait_for 10 bash -c "rex --autostart=false session ls --json | grep -q shellt"

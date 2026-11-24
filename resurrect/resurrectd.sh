@@ -27,8 +27,21 @@ if [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt "$MAX_LOG" ]; then
 fi
 exec >>"$LOG" 2>&1
 
+# Being stopped (launchctl, systemctl, brew services) is a clean exit. `rex do`
+# itself exits 130 on SIGTERM, which systemd would record as a failed unit.
+trap 'exit 0' TERM INT HUP
 until "$REX" --autostart=false server status >/dev/null 2>&1; do
-  sleep 10
+  sleep 10 & wait $!
 done
 echo "$(date '+%Y-%m-%d %H:%M:%S') rex-resurrect: server is up, starting daemon"
-exec "$REX" --autostart=false do "$DIR/daemon.lua" --all
+"$REX" --autostart=false do "$DIR/daemon.lua" --all &
+child=$!
+trap 'kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null; exit 0' TERM INT HUP
+wait "$child"
+rc=$?
+# systemd signals the whole group at once, so the daemon can exit from the
+# same SIGTERM before the trap above runs: 130/143 mean "interrupted".
+case $rc in 130|143) exit 0 ;; esac
+# The daemon exited by itself (the server went away): pass its status on, so
+# the supervisor runs this script again.
+exit $rc
