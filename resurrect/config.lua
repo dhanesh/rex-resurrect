@@ -43,6 +43,9 @@ M.defaults = {
   settle_delay = 2,          -- wait after a server restart before comparing
   history_keep = 20,         -- archived snapshots to keep
   history_interval = 900,    -- archive the current snapshot at most this often
+  confirm_interval = 900,    -- note "snapshot still current" at most this often
+  scrollback_lines = 2000,   -- lines of output kept per block (shell hook only); 0 = off
+  scrollback_poll = 15,      -- how often to look for commands run in hooked blocks
 }
 
 local LIMITS = {
@@ -52,6 +55,9 @@ local LIMITS = {
   settle_delay = { 0, 60 },
   history_keep = { 1, 500 },
   history_interval = { 60, 86400 * 7 },
+  confirm_interval = { 1, 86400 },
+  scrollback_lines = { 0, 20000 },
+  scrollback_poll = { 1, 3600 },
 }
 
 local function copy(t)

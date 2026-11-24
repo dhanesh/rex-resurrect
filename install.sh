@@ -36,6 +36,7 @@ if [ "$MODE" = link ]; then
 else
   mkdir -p "$DEST"
   cp "$SRC"/resurrect/*.lua "$SRC"/resurrect/*.sh "$DEST"/
+  cp -R "$SRC"/resurrect/shell "$DEST"/
 fi
 chmod +x "$DEST"/*.sh
 mkdir -p "$STATE" && chmod 700 "$STATE"
@@ -71,8 +72,23 @@ else
 fi
 "$REX" --autostart=false config reload >/dev/null 2>&1 && say "✓ Rex reloaded its config" || say "· Rex is not running; config loads when it starts"
 
+# 3. Optional shell hook (per-block history and output): never edits rc files.
+case ${SHELL:-} in
+  zsh|*/zsh)   RC=~/.zshrc HOOK="$DEST/shell/rex-resurrect.zsh" ;;
+  bash|*/bash) RC=~/.bashrc HOOK="$DEST/shell/rex-resurrect.bash" ;;
+  *)           RC="" ;;
+esac
+if [ -n "$RC" ] && ! grep -qF 'resurrect/shell/rex-resurrect' "$RC" 2>/dev/null; then
+  say "· optional, per-block history and output after a restart; add to $RC:"
+  say "    [ -r \"$HOOK\" ] && . \"$HOOK\""
+fi
+
 # 3. Background saver ------------------------------------------------------------
-[ "$SERVICE" = yes ] || { say "· service skipped (--no-service). Run: $DEST/resurrectd.sh"; exit 0; }
+if [ "$SERVICE" = no ]; then
+  if [ "${REX_RESURRECT_MANAGED:-}" = brew ]; then say "· the saver is run by Homebrew: brew services start rex-resurrect"
+  else say "· service skipped (--no-service). Run: $DEST/resurrectd.sh"; fi
+  exit 0
+fi
 
 case $(uname -s) in
   Darwin)

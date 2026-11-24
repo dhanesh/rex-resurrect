@@ -5,6 +5,7 @@
 local util = require("resurrect.util")
 local programs = require("resurrect.programs")
 local snapshot = require("resurrect.snapshot")
+local scrollback = require("resurrect.scrollback")
 
 local M = {}
 local SHELL_FLAVOR = "com.superlogical.terminal.shell"
@@ -56,7 +57,19 @@ function M.restore_session(saved, cfg)
   local res, leaves_or_err = create_session(saved)
   if not res then return nil, leaves_or_err end
   local leaves_by_window = leaves_or_err
-  local relaunch, focus, active = {}, {}, nil
+  local relaunch, focus, active, handed = {}, {}, nil, {}
+  -- First, before the new shells get far: hand each old pane's saved history
+  -- and output to its new pane (shell hook users only).
+  for i, wres in ipairs(res.initial_windows or {}) do
+    local info = leaves_by_window[i]
+    for j, new_id in ipairs(wres.block_ids or {}) do
+      local leaf = info and info.leaves[j]
+      if leaf and leaf.block_id and cfg.state_dir then
+        local ok, moved = pcall(scrollback.handover, cfg, leaf.block_id, new_id)
+        if ok and moved then handed[new_id] = true end
+      end
+    end
+  end
   for i, wres in ipairs(res.initial_windows or {}) do
     local info = leaves_by_window[i]
     if info then
@@ -67,6 +80,10 @@ function M.restore_session(saved, cfg)
           local argv = programs.restore_argv(leaf.program, leaf.cwd, cfg)
           if argv then
             relaunch[#relaunch + 1] = { session_id = res.session_id, block_id = new_id, argv = argv, cwd = leaf.cwd }
+          elseif handed[new_id] then
+            -- An empty line makes the hooked shell show the handed-over
+            -- output now rather than after the user's first command.
+            relaunch[#relaunch + 1] = { session_id = res.session_id, block_id = new_id, nudge = true }
           end
         end
       end
@@ -98,8 +115,8 @@ function M.relaunch(item)
       rex.sleep(0.25)
     end
   end
-  local res, err = util.block_call(item.session_id, item.block_id, "write",
-    { data = util.shell_join(item.argv) .. "\r" })
+  local data = item.nudge and "\r" or (util.shell_join(item.argv) .. "\r")
+  local res, err = util.block_call(item.session_id, item.block_id, "write", { data = data })
   return res ~= nil, err
 end
 
@@ -123,7 +140,9 @@ function M.execute(plan, cfg, say)
   for _, r in ipairs(plan.relaunch or {}) do queue[#queue + 1] = r end
   for _, r in ipairs(queue) do
     local ok, err = M.relaunch(r)
-    if ok then
+    if r.nudge then
+      -- The empty line from restore_session: not a program, nothing to report.
+    elseif ok then
       result.relaunched = result.relaunched + 1
       say("✓ " .. util.shell_join(r.argv) .. "  in " .. util.tilde(r.cwd or "~"))
     else

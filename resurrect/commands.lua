@@ -57,6 +57,24 @@ function M.commit(cfg, store, snap, last_key)
   return key, true
 end
 
+-- The daemon re-reads the server often, but rewrites last.json only when
+-- something changed, so saved_at alone makes an unchanged snapshot look
+-- stale. checked.json records when a capture last matched it (at most every
+-- confirm_interval), tied to that snapshot by its saved_at. It is a separate
+-- file so these writes never race the read-modify-write of state.json.
+function M.note_checked(store, saved_at, now)
+  return store:write_json("checked.json", { at = now or os.time(), saved_at = saved_at })
+end
+
+-- The time a snapshot was last confirmed current, or nil.
+function M.checked_at(store, snap)
+  local c = snap and store:read_json("checked.json")
+  if c and c.saved_at == snap.saved_at and type(c.at) == "number" and c.at > (snap.saved_at or 0) then
+    return c.at
+  end
+  return nil
+end
+
 function M.build_plan(cfg, snap)
   local live, err = plan_mod.live_sessions()
   if not live then return nil, err end
@@ -156,6 +174,11 @@ function M.status(cfg, store)
   if last then
     out.saved_at = os.date("%Y-%m-%d %H:%M:%S", last.saved_at)
     out.saved = util.ago(os.time() - (last.saved_at or 0))
+    local checked = M.checked_at(store, last)
+    if checked then
+      out.checked_at = os.date("%Y-%m-%d %H:%M:%S", checked)
+      out.checked = util.ago(os.time() - checked)
+    end
     out.sessions, out.windows, out.panes = snapshot.count(last)
   end
   return out
@@ -231,6 +254,7 @@ function M.on_server_start(cfg, store, meta, paths)
     local last = store:read_json("last.json")
     local same_host = not (last and last.host_id and meta.host_id and last.host_id ~= meta.host_id)
     if last and same_host and #(last.sessions or {}) > 0 and snapshot.content_key(last) ~= st.declined_key then
+      last.checked_at = M.checked_at(store, last) or last.checked_at
       store:write_json("pending.json", last)
     end
   end

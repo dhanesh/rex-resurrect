@@ -8,6 +8,9 @@ SOCK=$T/s.sock
 export REX_SERVER="unix://$SOCK"
 export XDG_STATE_HOME=$T/xdg-state
 export XDG_CONFIG_HOME=$T/xdg-config
+# Shells in the test server's panes are zsh on macOS: give them their own
+# startup files and history, so typed test commands never reach yours.
+export ZDOTDIR=$T/zdot
 export REX_RESURRECT_REX=$(command -v rex)
 # This test may itself run inside a Rex pane; don't let that pane be the target.
 unset REX_BLOCK REX_SESSION REX_CLIENT
@@ -49,7 +52,8 @@ start_daemon() {
 cleanup() { [ -n "$daemon_pid" ] && kill "$daemon_pid" 2>/dev/null; stop_server; }
 trap cleanup EXIT
 
-rm -rf "$T" && mkdir -p "$T/cfg" "$XDG_CONFIG_HOME/rex"
+rm -rf "$T" && mkdir -p "$T/cfg" "$XDG_CONFIG_HOME/rex" "$ZDOTDIR"
+echo "HISTFILE=$T/zsh_history" >"$ZDOTDIR/.zshrc"
 cat >"$T/cfg/init.lua" <<EOF
 package.path = "$ROOT/?.lua;" .. package.path
 pcall(function() require("resurrect.actions").setup() end)

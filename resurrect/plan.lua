@@ -53,7 +53,7 @@ end
 -- live: array of { session_id, label, block_ids = { [id] = true }, view = session.view }
 -- probe(session_id, block_id) -> programs.identify() result or nil
 function M.build(snap, live, probe, cfg)
-  local plan = { saved_at = snap.saved_at, missing = {}, relaunch = {}, natively_restored = 0, total = 0 }
+  local plan = { saved_at = snap.saved_at, checked_at = snap.checked_at, missing = {}, relaunch = {}, natively_restored = 0, total = 0 }
   local by_id, by_label = {}, {}
   for _, s in ipairs(live or {}) do
     by_id[s.session_id] = s
@@ -102,8 +102,15 @@ function M.describe(plan, now)
   now = now or os.time()
   local lines = {}
   local function add(s) lines[#lines + 1] = s end
-  add(string.format("rex-resurrect · snapshot from %s (%s)",
-    util.short_time(plan.saved_at or now), util.ago(now - (plan.saved_at or now))))
+  local saved = plan.saved_at or now
+  local checked = plan.checked_at
+  if type(checked) == "number" and checked > saved + 60 then
+    -- Unchanged since it was saved, and known to be current until `checked`.
+    add(string.format("rex-resurrect · snapshot from %s, still current at %s (%s)",
+      util.short_time(saved), util.short_time(checked), util.ago(now - checked)))
+  else
+    add(string.format("rex-resurrect · snapshot from %s (%s)", util.short_time(saved), util.ago(now - saved)))
+  end
   add("")
   if plan.total > 0 then
     add(string.format("Rex brought back %d of %d saved session%s on its own.",

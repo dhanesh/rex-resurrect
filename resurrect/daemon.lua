@@ -13,6 +13,7 @@ package.path = (plugin_dir:match("^(.*)/[^/]+$") or ".") .. "/?.lua;" .. package
 local util = require("resurrect.util")
 local commands = require("resurrect.commands")
 local snapshot = require("resurrect.snapshot")
+local scrollback = require("resurrect.scrollback")
 
 local cfg, store = commands.context()
 local meta = snapshot.server_meta()
@@ -32,16 +33,19 @@ local paths = {
 --    snapshot from before it is frozen as pending.json first.
 local ok, outcome = pcall(commands.on_server_start, cfg, store, meta, paths)
 util.log(ok and "info" or "error", "startup: " .. tostring(outcome))
+local scroll = scrollback.saver(cfg, store)
+if outcome ~= "same server" then scroll:hold_existing() end
 
 -- 2. Incremental saving.
 -- Mutable state lives in a table on purpose: in Rex's Lua runtime, a Lua
 -- error caught by pcall can detach an enclosing function's view of a local
 -- that closures assign to. Table fields are not affected.
 local tracker = snapshot.tracker(cfg)
-local S = { timer = nil, last_save = 0, last_key = nil }
+local S = { timer = nil, last_save = 0, last_key = nil, saved_at = nil, checked = 0 }
 do
   local last = store:read_json("last.json")
   S.last_key = last and snapshot.content_key(last) or nil
+  S.saved_at = last and last.saved_at
 end
 
 local function flush()
@@ -50,7 +54,19 @@ local function flush()
   local fok, err = pcall(function()
     local rok, rerr = tracker:refresh()
     if not rok then error(rerr) end
-    S.last_key = commands.commit(cfg, store, tracker:snapshot(meta), S.last_key)
+    local snap = tracker:snapshot(meta)
+    local unchanged = #snap.sessions > 0 and snapshot.content_key(snap) == S.last_key
+    local key, wrote = commands.commit(cfg, store, snap, S.last_key)
+    S.last_key = key
+    if wrote then
+      S.saved_at, S.checked = snap.saved_at, snap.saved_at
+    elseif unchanged and S.saved_at
+        and os.time() - S.checked >= cfg.confirm_interval then
+      -- Nothing changed: note that the saved snapshot is still current.
+      S.checked = os.time()
+      commands.note_checked(store, S.saved_at, S.checked)
+    end
+    scroll:after_save(tracker)
   end)
   if not fok then util.log("warn", "save skipped: " .. tostring(err)) end
 end
@@ -74,13 +90,32 @@ rex.on("session_moved", handler(function() tracker:mark_list(); schedule() end))
 -- Window/pane creation, closing, moves, splits, labels and focus all end in
 -- a session_view_changed for that session.
 rex.on("session_view_changed", handler(function(ev) tracker:mark_session(ev.session_id); schedule() end))
-rex.on("com.superlogical.terminal.pwd_changed", handler(function(ev) tracker:mark_block(ev.block_id); schedule() end))
-rex.on("com.superlogical.terminal.process_changed", handler(function(ev) tracker:mark_block(ev.block_id); schedule() end))
+-- A command starting or finishing (process_changed) is also when a block's
+-- output is worth saving again.
+local function block_event(ev) tracker:mark_block(ev.block_id); scroll:mark(ev.block_id); schedule() end
+rex.on("com.superlogical.terminal.pwd_changed", handler(block_event))
+rex.on("com.superlogical.terminal.process_changed", handler(block_event))
 
 -- Safety net for anything an event did not tell us (e.g. dropped events).
-rex.every(cfg.resync_interval, handler(function() tracker:mark_all(); schedule() end))
+rex.every(cfg.resync_interval, handler(function() tracker:mark_all(); scroll:mark_running(tracker); schedule() end))
+
+-- Quick commands send no event; the shell hook's history file shows them.
+rex.every(cfg.scrollback_poll, handler(function()
+  if scroll:poll(tracker) then
+    for bid in pairs(scroll.dirty) do tracker:mark_block(bid) end
+    schedule()
+  end
+end))
+
+-- Saved output of blocks that are long gone.
+local function gc()
+  local removed = scrollback.gc(cfg, store, tracker)
+  if removed > 0 then util.log("info", string.format("removed saved output of %d closed blocks", removed)) end
+end
+rex.every(86400, handler(gc))
 
 tracker:mark_all()
 flush()
+handler(gc)()
 util.log("info", string.format("saving to %s (every change, at most every %ds; full resync every %ds)",
   cfg.state_dir, cfg.min_save_interval, cfg.resync_interval))

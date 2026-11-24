@@ -3,7 +3,16 @@
 # starts one), then runs the daemon. When the server stops, the daemon exits
 # and the supervisor runs this script again.
 DIR=$(cd "$(dirname "$0")" && pwd)
-REX=${REX_RESURRECT_REX:-rex}
+# Find rex: explicit setting, then PATH, then the macOS app's own copy (services
+# such as `brew services` don't get the PATH a Rex terminal has).
+REX=${REX_RESURRECT_REX:-}
+if [ -z "$REX" ]; then
+  REX=$(command -v rex 2>/dev/null || true)
+  APP="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex"
+  [ -z "$REX" ] && [ -x "$APP" ] && REX=$APP
+  REX=${REX:-rex}
+fi
+export REX_RESURRECT_REX="$REX"  # daemon.lua uses it for the restore prompt
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/rex-resurrect
 LOG=$STATE/daemon.log
 MAX_LOG=524288

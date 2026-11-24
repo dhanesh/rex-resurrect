@@ -10,6 +10,7 @@ local programs = require("resurrect.programs")
 local snapshot = require("resurrect.snapshot")
 local plan = require("resurrect.plan")
 local restore = require("resurrect.restore")
+local scrollback = require("resurrect.scrollback")
 
 -- Counters live in a table: Rex's Lua runtime can detach a local that a
 -- closure assigns to once a Lua error has been caught by pcall.
@@ -235,6 +236,38 @@ test("content_key ignores timestamps", function()
   local a = { saved_at = 1, sessions = { { session_id = "s", windows = {} } } }
   local b = { saved_at = 2, sessions = { { session_id = "s", windows = {} } } }
   eq(snapshot.content_key(a), snapshot.content_key(b))
+end)
+
+test("describe: an unchanged snapshot says when it was last known current", function()
+  local p = { saved_at = 1000, checked_at = 1000 + 36000, missing = {}, relaunch = {}, total = 0, natively_restored = 0 }
+  local first = plan.describe(p, 1000 + 72000):match("^[^\n]*")
+  eq(first:find("still current at", 1, true) ~= nil, true, first)
+  eq(first:find("(10 h ago)", 1, true) ~= nil, true, first)
+  p.checked_at = nil
+  first = plan.describe(p, 1000 + 72000):match("^[^\n]*")
+  eq(first:find("(20 h ago)", 1, true) ~= nil, true, first)
+  eq(first:find("still current", 1, true), nil, first)
+end)
+
+test("scrollback: block ids never become paths", function()
+  eq(scrollback.block_id("block:01a1c990-81f2-73d0"), "01a1c990-81f2-73d0")
+  eq(scrollback.block_id("block:../../etc"), nil)
+  eq(scrollback.block_id("block:a/b"), nil)
+  eq(scrollback.block_id(""), nil)
+  eq(scrollback.block_id(nil), nil)
+end)
+
+test("scrollback: clean strips escapes, keeps the tail, drops the prompt", function()
+  local raw = "one\n\27]52;c;ZXZpbA==\7two\27[31m red\n\n" .. "three\r\n\194\155x\n❯ \n\n"
+  eq(scrollback.clean(raw, 10, false), "one\n]52;c;ZXZpbA==two[31m red\n\nthree\nx\n❯")
+  eq(scrollback.clean(raw, 10, true), "one\n]52;c;ZXZpbA==two[31m red\n\nthree\nx")
+  eq(scrollback.clean(raw, 2, true), "three\nx")
+  eq(scrollback.clean("\n\n", 10, true), "")
+end)
+
+test("scrollback: replay banners are dropped, the replayed output kept", function()
+  local raw = "── output from before Rex restarted · saved Mon 10:25 ──\nold\n── end of restored output ──\nnew\n❯"
+  eq(scrollback.clean(raw, 10, true), "old\nnew")
 end)
 
 test("regression: runtime keeps table state across caught errors", function()

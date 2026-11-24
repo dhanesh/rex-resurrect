@@ -1,0 +1,65 @@
+#!/bin/sh
+# rex-resurrect command, for package-manager installs (Homebrew).
+#   rex-resurrect setup     hook init.lua and link the plugin (once per user)
+#   rex-resurrect remove    undo setup (snapshots are kept)
+#   rex-resurrect status    what was saved, and when
+#   rex-resurrect version
+# REX_RESURRECT_HOME is the unpacked release (Homebrew sets it to opt/libexec,
+# a path that stays valid across upgrades). REX_RESURRECT_MANAGED=brew means
+# Homebrew runs the saver (`brew services`), so setup leaves services alone.
+set -eu
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+SRC=${REX_RESURRECT_HOME:-$HERE}
+MANAGED=${REX_RESURRECT_MANAGED:-}
+say() { printf '%s\n' "$*"; }
+
+find_rex() {
+  command -v rex 2>/dev/null && return
+  app="$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS"
+  [ -x "$app/rex" ] && { PATH="$app:$PATH"; export PATH; echo "$app/rex"; return; }
+  say "rex-resurrect: rex is not on PATH; install Rex first: https://www.superlogical.com/rex" >&2
+  exit 1
+}
+
+case ${1:-help} in
+  setup)
+    shift
+    find_rex >/dev/null
+    if [ "$MANAGED" = brew ]; then
+      # An earlier ./install.sh or get.sh install runs its own launchd agent;
+      # hand over to brew services so there is only ever one saver.
+      old="$HOME/Library/LaunchAgents/dev.rex-resurrect.plist"
+      if [ -f "$old" ]; then
+        launchctl bootout "gui/$(id -u)/dev.rex-resurrect" 2>/dev/null || true
+        rm -f "$old"
+        say "✓ stopped the saver from an earlier install (brew services runs it now)"
+      fi
+      exec sh "$SRC/install.sh" --link --no-service "$@"
+    else
+      exec sh "$SRC/install.sh" "$@"
+    fi
+    ;;
+  remove)
+    shift
+    if [ "$MANAGED" = brew ]; then
+      sh "$SRC/uninstall.sh" --no-service "$@"
+      say "Stop the saver:  brew services stop rex-resurrect"
+    else
+      exec sh "$SRC/uninstall.sh" "$@"
+    fi
+    ;;
+  status)
+    rex=$(find_rex)
+    (unset REX_BLOCK REX_SESSION; exec "$rex" --autostart=false do resurrect_status)
+    ;;
+  version|--version|-v)
+    cat "$SRC/VERSION" 2>/dev/null || echo dev
+    ;;
+  help|-h|--help)
+    sed -n '2,9p' "$0"
+    ;;
+  *)
+    say "unknown command: $1 (try: rex-resurrect help)" >&2
+    exit 2
+    ;;
+esac
