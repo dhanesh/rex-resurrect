@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.2 — unreleased
+## v0.1.2 — 2026-11-24
 
 * **Fix: a session created while the saver was starting could go unsaved**
   for up to 5 minutes. This happens most often at login, when Rex and the
